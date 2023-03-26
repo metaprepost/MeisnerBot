@@ -5,7 +5,7 @@ import math
 import datetime
 import telebot
 from telebot.types import Message, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from token_storage import MEISNER_BOT_TOKEN
+from token_storage import BABOOSHKA_BOT_TOKEN
 from datetime import datetime, timedelta
 from data import MONTHS_RUS_NOM, MONTHS_RUS_GEN
 
@@ -13,7 +13,7 @@ from data import MONTHS_RUS_NOM, MONTHS_RUS_GEN
 # rent - Введи ренту в ₽ (например, 75555).
 # cleaning - Узнай дату следующей уборки или задай новую.
 
-bot = telebot.TeleBot(MEISNER_BOT_TOKEN)
+bot = telebot.TeleBot(BABOOSHKA_BOT_TOKEN)
 cleaning_marker = 0
 cleaning_choice_marker = 0
 cleaning_options = ["Дата уборки",
@@ -109,10 +109,10 @@ def rent_calculation(message: Message) -> None:
                 bot.reply_to(message=message,
                              text=f"Что-то не так, должно быть больше {data.BASIC_RENT} руб.",
                              reply_markup=ReplyKeyboardRemove())
-    except Exception:
+    except ValueError:
         bot.send_message(chat_id=message.chat.id,
-                         text="[" + message.from_user.first_name + "](tg://user?id=" +
-                              str(message.from_user.id) + "), дружище, это же не число\.\.\.",
+                         text=f"[{message.from_user.first_name}]"
+                              f"(tg://user?id={message.from_user.id}), дружище, это же не число\.\.\.",
                          parse_mode="MarkdownV2",
                          reply_markup=ReplyKeyboardRemove())
 
@@ -122,8 +122,8 @@ def cleaning(message: Message) -> None:
     global cleaning_marker
     cleaning_marker = 1
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True, selective=True)
-    for i in range(len(cleaning_options)):
-        keyboard.add(KeyboardButton(cleaning_options[i]))
+    for option in cleaning_options:
+        keyboard.add(KeyboardButton(option))
     bot.reply_to(message=message,
                  text="Выбери опцию.",
                  reply_markup=keyboard)
@@ -139,19 +139,20 @@ def get_cleaning_date(message: Message) -> None:
     else:
         cleaning_date += timedelta(days=14)
         update_cleaning_date("cleaning_date.txt", cleaning_date.date().isoformat())
-        bot.send_message(chat_id=message.chat.id,
-                         text=f"Обновила дату! Следующая уборка будет {change_date_format(cleaning_date)} в 12:00!",
-                         reply_markup=ReplyKeyboardRemove())
+        message_id_to_pin = bot.send_message(
+            chat_id=message.chat.id,
+            text=f"Обновила дату! Следующая уборка будет {change_date_format(cleaning_date)} в 12:00!",
+            reply_markup=ReplyKeyboardRemove()
+            ).id
+        bot.pin_chat_message(chat_id=message.chat.id, message_id=message_id_to_pin)
 
 
 @bot.message_handler(is_allowed_id=True, func=lambda message: message.text == cleaning_options[1])
 def schedule_choice(message: Message) -> None:
     global cleaning_choice_marker
-    days = []
     cleaning_choice_marker = 1
     if cleaning_marker == 1:
-        for i in range(15):
-            days.append(add_date(i))
+        days = [add_date(i) for i in range(15)]
         keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True, selective=True, row_width=3)
         keyboard.add(*days)
         bot.reply_to(message=message,
@@ -163,11 +164,18 @@ def schedule_choice(message: Message) -> None:
 def cleaning_reply(message: Message) -> None:
     global cleaning_marker, cleaning_choice_marker
     if cleaning_marker == 1 and cleaning_choice_marker == 1:
+        try:
+            date_chosen = datetime.fromisoformat(message.text)
+        except ValueError:
+            bot.send_message(chat_id=message.chat.id,
+                             text=f"[{message.from_user.first_name}]"
+                                  f"(tg://user?id={message.from_user.id}), используй клавиатуру с датами\.",
+                             parse_mode="MarkdownV2")
+            return
         filename = "cleaning_date.txt"
         file = open(filename, mode="w")
         file.write(message.text)
         file.close()
-        date_chosen = datetime.fromisoformat(message.text)
         bot.reply_to(message=message,
                      text=f"Я запомнила: уборка будет {change_date_format(date_chosen)}!",
                      reply_markup=ReplyKeyboardRemove())
